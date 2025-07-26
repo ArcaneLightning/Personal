@@ -71,7 +71,6 @@
     <div id="notification"></div>
 
     <script>
-        // FIXED: API_URL is now a relative path
         const API_URL = '';
         const gallery = document.getElementById('gallery');
         const loader = document.getElementById('loader');
@@ -88,40 +87,71 @@
         
         document.addEventListener('DOMContentLoaded', () => {
             setThumbnailVisibility(localStorage.getItem('thumbnailsHidden') === 'true');
-            fetchVideos();
+            fetchVideosAndThumbnails();
         });
 
-        async function fetchVideos() {
-            loader.style.display = 'block'; gallery.innerHTML = '';
+        async function fetchVideosAndThumbnails() {
+            loader.style.display = 'block';
+            gallery.innerHTML = '';
+            
             try {
-                // FIXED: URL points to the correct blueprint endpoint
-                const res = await fetch(`${API_URL}/videos`);
-                if (!res.ok) throw new Error(`Server responded with ${res.status}`);
-                renderGallery(await res.json());
+                const videosRes = await fetch(`${API_URL}/videos`);
+                if (!videosRes.ok) throw new Error(`Server responded with ${videosRes.status}`);
+                const videos = await videosRes.json();
+
+                if (videos.length === 0) {
+                    gallery.innerHTML = '<p>No videos found. Add one to get started!</p>';
+                    loader.style.display = 'none';
+                    return;
+                }
+
+                renderInitialCards(videos);
+
+                for (const video of videos) {
+                    fetchThumbnail(video.link);
+                }
+
             } catch (error) {
                 gallery.innerHTML = `<p style="color: var(--accent-error);">Error loading videos: ${error.message}</p>`;
-            } finally { loader.style.display = 'none'; }
+            } finally {
+                loader.style.display = 'none';
+            }
         }
 
-        function renderGallery(videos) {
-            if (videos.length === 0) {
-                gallery.innerHTML = '<p>No videos found. Add one to get started!</p>';
-                return;
-            }
+        function renderInitialCards(videos) {
             const videoCardsHTML = videos.map(video => {
                 const primaryTag = video.tags[0] || 'Uncategorized';
                 const secondaryTags = video.tags.slice(1);
+                const placeholderThumb = 'https://via.placeholder.com/320x180?text=Loading...';
                 return `
                 <div class="video-card" id="card-${btoa(video.link)}">
                     <button class="remove-btn" onclick="openConfirmModal('${video.link}', '${video.title.replace(/'/g, "\\'")}')">&times;</button>
                     <a href="${video.link}" target="_blank" rel="noopener noreferrer" class="thumbnail-link">
-                        <img src="${video.thumb}" alt="Thumbnail for ${video.title}" loading="lazy">
+                        <img src="${placeholderThumb}" alt="Thumbnail for ${video.title}" loading="lazy" id="thumb-${btoa(video.link)}">
                         <div class="thumbnail-overlay"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg></div>
                     </a>
                     <div class="video-card-info"><h3>${video.title}</h3><div class="tags-container"><span class="tag primary-tag">${primaryTag}</span>${secondaryTags.map(tag => `<span class="tag">${tag}</span>`).join('')}</div></div>
                 </div>`;
             }).join('');
             gallery.innerHTML = videoCardsHTML;
+        }
+
+        async function fetchThumbnail(link) {
+            try {
+                const thumbRes = await fetch(`${API_URL}/thumbnail`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ link: link })
+                });
+                if (!thumbRes.ok) return;
+                const data = await thumbRes.json();
+                const imgElement = document.getElementById(`thumb-${btoa(data.link)}`);
+                if (imgElement) {
+                    imgElement.src = data.thumb;
+                }
+            } catch (error) {
+                console.error(`Failed to fetch thumbnail for ${link}:`, error);
+            }
         }
         
         async function addVideos() {
@@ -133,7 +163,6 @@
             const addBtn = document.getElementById('addBtn');
             addBtn.disabled = true; addBtn.textContent = `Adding ${urls.length} link(s)...`;
             try {
-                // FIXED: URL points to the correct blueprint endpoint
                 const res = await fetch(`${API_URL}/add`, {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ urls })
@@ -149,7 +178,7 @@
                 showNotification(`${successCount} of ${urls.length} links added successfully.`, 'success');
                 document.getElementById("videoLinks").value = "";
                 toggleModal('addVideoModal', false);
-                if (successCount > 0) await fetchVideos();
+                if (successCount > 0) await fetchVideosAndThumbnails();
             } catch (error) {
                 showNotification(`Error adding videos: ${error.message}`, 'error');
             } finally {
@@ -162,11 +191,10 @@
             if (!videoLinkToDelete) return;
             toggleModal('removeConfirmModal', false);
             try {
-                // FIXED: URL points to the correct blueprint endpoint
                 const res = await fetch(`${API_URL}/remove`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link: videoLinkToDelete }) });
                 if (!res.ok) throw new Error('Server failed to remove video.');
                 showNotification('Video removed.', 'success');
-                await fetchVideos();
+                await fetchVideosAndThumbnails();
             } catch (error) {
                 showNotification(error.message, 'error');
             } finally { videoLinkToDelete = null; }

@@ -1,5 +1,3 @@
-# videos.py - MODIFIED
-
 from flask import Blueprint, jsonify, request
 import re
 import requests
@@ -9,12 +7,12 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import threading
-from classification_logic import classify_video # Assuming this file exists
+from classification_logic import classify_video # Assuming this file exists and is correct
 
-# 1. Create a Blueprint object instead of a Flask app
+# Create a Blueprint object
 video_bp = Blueprint('video', __name__)
 
-# --- CONFIGURATION AND STATE (Remains the same) ---
+# --- CONFIGURATION AND STATE ---
 VIDEO_FILE = "classified_videos.txt"
 CACHE_FILE = "thumbnail_cache.json"
 THUMBNAIL_CACHE = {}
@@ -27,7 +25,7 @@ http_session.headers.update({
 
 logging.basicConfig(level=logging.INFO)
 
-# --- ALL HELPER FUNCTIONS (fetch_video_details, get_or_generate_thumbnail, etc.) REMAIN EXACTLY THE SAME ---
+# --- HELPER FUNCTIONS ---
 
 def fetch_video_details(url):
     try:
@@ -104,16 +102,23 @@ def parse_videos():
                 logging.warning(f"Skipping malformed line: {line.strip()}")
     return videos
 
-# 2. Change the route decorator from @app.route to @video_bp.route
+# --- FLASK ROUTES ---
+
 @video_bp.route("/videos")
 def get_videos():
+    """Returns only the list of videos. This is fast and won't time out."""
     videos = parse_videos()
-    links = [v['link'] for v in videos]
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        executor.map(get_or_generate_thumbnail, links)
-    for video in videos:
-        video['thumb'] = THUMBNAIL_CACHE.get(video['link'], "https://via.placeholder.com/320x180?text=Error")
     return jsonify(videos)
+
+@video_bp.route("/thumbnail", methods=["POST"])
+def get_thumbnail_route():
+    """Returns the thumbnail for a single video. Called by the frontend for each video."""
+    data = request.json
+    link = data.get("link")
+    if not link:
+        return jsonify({"error": "Missing link"}), 400
+    thumb_url = get_or_generate_thumbnail(link)
+    return jsonify({"link": link, "thumb": thumb_url})
 
 @video_bp.route("/add", methods=["POST"])
 def add_video():
@@ -170,7 +175,3 @@ def remove_video():
             del THUMBNAIL_CACHE[link_to_remove]
             save_cache()
     return jsonify({"message": "Video removed successfully."}), 200
-
-# 3. REMOVE the original app definition and the __main__ block
-# DELETE: app = Flask(__name__)
-# DELETE: if __name__ == "__main__": ...
