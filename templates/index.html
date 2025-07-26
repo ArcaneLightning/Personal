@@ -31,7 +31,7 @@
         .video-card { background: var(--background-secondary); border-radius: 12px; box-shadow: 0 4px 20px var(--shadow-color); transition: transform 0.3s ease, box-shadow 0.3s ease; display: flex; flex-direction: column; position: relative; }
         .video-card:hover { transform: scale(1.03); box-shadow: 0 8px 25px var(--shadow-color); }
         .video-card .thumbnail-link { text-decoration: none; color: inherit; display: block; position: relative; overflow: hidden; border-radius: 12px 12px 0 0;}
-        .video-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background-color: var(--background-tertiary); }
+        .video-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; }
         .video-card-info { padding: 1rem; flex-grow: 1; display: flex; flex-direction: column; }
         .video-card-info h3 { margin: 0 0 0.75rem; font-size: 1.1rem; font-weight: 600; }
         .tags-container { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: auto; padding-top: 0.75rem; }
@@ -87,23 +87,49 @@
         
         document.addEventListener('DOMContentLoaded', () => {
             setThumbnailVisibility(localStorage.getItem('thumbnailsHidden') === 'true');
-            loadInitialVideos();
+            loadGallery();
         });
 
-        async function loadInitialVideos() {
+        async function loadGallery() {
             loader.style.display = 'block';
-            gallery.innerHTML = '';
+            gallery.innerHTML = '<p id="loader">Loading videos...</p>';
+            
             try {
-                const res = await fetch(`${API_URL}/videos`);
-                if (!res.ok) throw new Error(`Server responded with ${res.status}`);
-                const videos = await res.json();
+                // 1. Fetch the initial list of videos (fast)
+                const videosRes = await fetch(`${API_URL}/videos`);
+                if (!videosRes.ok) throw new Error(`Server responded with ${videosRes.status}`);
+                const videos = await videosRes.json();
 
                 if (videos.length === 0) {
                     gallery.innerHTML = '<p>No videos found. Add one to get started!</p>';
                     return;
                 }
+
+                // 2. Create all thumbnail fetch requests concurrently
+                const thumbnailPromises = videos.map(video =>
+                    fetch(`${API_URL}/thumbnail`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ link: video.link })
+                    })
+                    .then(res => res.ok ? res.json() : { link: video.link, thumb: 'https://via.placeholder.com/320x180?text=Error' })
+                    .catch(() => ({ link: video.link, thumb: 'https://via.placeholder.com/320x180?text=Error' }))
+                );
+
+                // 3. Wait for all thumbnail requests to complete
+                const thumbnailResults = await Promise.all(thumbnailPromises);
                 
-                renderVideoSkeletons(videos);
+                // 4. Create a quick lookup map for thumbnails
+                const thumbnailMap = new Map(thumbnailResults.map(t => [t.link, t.thumb]));
+                
+                // 5. Add the fetched thumbnail URL to each video object
+                const videosWithThumbs = videos.map(video => ({
+                    ...video,
+                    thumb: thumbnailMap.get(video.link) || 'https://via.placeholder.com/320x180?text=Error'
+                }));
+
+                // 6. Render the entire gallery at once
+                renderGallery(videosWithThumbs);
 
             } catch (error) {
                 gallery.innerHTML = `<p style="color: var(--accent-error);">Error loading videos: ${error.message}</p>`;
@@ -111,57 +137,26 @@
                 loader.style.display = 'none';
             }
         }
-        
-        function renderVideoSkeletons(videos) {
-            const observer = new IntersectionObserver((entries, observer) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const card = entry.target;
-                        const link = card.dataset.link;
-                        const thumb = card.querySelector('img');
-                        
-                        // Fetch the thumbnail for this specific card
-                        fetch(`${API_URL}/thumbnail`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ link: link })
-                        })
-                        .then(res => res.json())
-                        .then(data => {
-                            thumb.src = data.thumb;
-                        })
-                        .catch(err => {
-                            console.error("Thumbnail fetch failed:", err);
-                            thumb.src = 'https://via.placeholder.com/320x180?text=Error';
-                        });
-                        
-                        // Stop observing this card once the thumbnail is requested
-                        observer.unobserve(card);
-                    }
-                });
-            }, { rootMargin: "0px 0px 200px 0px" }); // Start loading images 200px before they enter the screen
 
+        function renderGallery(videos) {
+            if (videos.length === 0) {
+                gallery.innerHTML = '<p>No videos found. Add one to get started!</p>';
+                return;
+            }
             const videoCardsHTML = videos.map(video => {
                 const primaryTag = video.tags[0] || 'Uncategorized';
                 const secondaryTags = video.tags.slice(1);
-                // Use a placeholder for the thumbnail initially
-                const placeholderThumb = 'https://via.placeholder.com/320x180?text=...';
-                
                 return `
-                <div class="video-card" data-link="${video.link}">
+                <div class="video-card" id="card-${btoa(video.link)}">
                     <button class="remove-btn" onclick="openConfirmModal('${video.link}', '${video.title.replace(/'/g, "\\'")}')">&times;</button>
                     <a href="${video.link}" target="_blank" rel="noopener noreferrer" class="thumbnail-link">
-                        <img src="${placeholderThumb}" alt="Thumbnail for ${video.title}" loading="lazy">
+                        <img src="${video.thumb}" alt="Thumbnail for ${video.title}" loading="lazy">
                         <div class="thumbnail-overlay"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg></div>
                     </a>
                     <div class="video-card-info"><h3>${video.title}</h3><div class="tags-container"><span class="tag primary-tag">${primaryTag}</span>${secondaryTags.map(tag => `<span class="tag">${tag}</span>`).join('')}</div></div>
                 </div>`;
             }).join('');
-            
             gallery.innerHTML = videoCardsHTML;
-            
-            // Start observing all the new cards
-            document.querySelectorAll('.video-card').forEach(card => observer.observe(card));
         }
         
         async function addVideos() {
@@ -171,7 +166,7 @@
                 showNotification("Please provide at least one valid link.", "error"); return;
             }
             const addBtn = document.getElementById('addBtn');
-            addBtn.disabled = true; addBtn.textContent = `Adding ${urls.length}...`;
+            addBtn.disabled = true; addBtn.textContent = `Adding ${urls.length} link(s)...`;
             try {
                 const res = await fetch(`${API_URL}/add`, {
                     method: "POST", headers: { "Content-Type": "application/json" },
@@ -188,7 +183,7 @@
                 showNotification(`${successCount} of ${urls.length} links added successfully.`, 'success');
                 document.getElementById("videoLinks").value = "";
                 toggleModal('addVideoModal', false);
-                if (successCount > 0) await loadInitialVideos();
+                if (successCount > 0) await loadGallery();
             } catch (error) {
                 showNotification(`Error adding videos: ${error.message}`, 'error');
             } finally {
@@ -204,7 +199,7 @@
                 const res = await fetch(`${API_URL}/remove`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link: videoLinkToDelete }) });
                 if (!res.ok) throw new Error('Server failed to remove video.');
                 showNotification('Video removed.', 'success');
-                await loadInitialVideos();
+                await loadGallery();
             } catch (error) {
                 showNotification(error.message, 'error');
             } finally { videoLinkToDelete = null; }
