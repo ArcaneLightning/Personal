@@ -1,18 +1,18 @@
-# gallery_server.py
+# gallery.py - MODIFIED
 
-from flask import Flask, jsonify, request
-from flask_cors import CORS
+from flask import Blueprint, jsonify, request
 import requests
 from bs4 import BeautifulSoup
 import json
 import os
 import re
 
-app = Flask(__name__)
-CORS(app)
+# 1. Create a Blueprint object with a URL prefix
+gallery_bp = Blueprint('gallery', __name__, url_prefix='/gallery')
 
 DATA_FILE = "gallery_data.json"
 
+# --- ALL HELPER FUNCTIONS (load_data, save_data, scrape_page) REMAIN EXACTLY THE SAME ---
 def load_data():
     if not os.path.exists(DATA_FILE): return []
     try:
@@ -59,9 +59,11 @@ def scrape_page(url):
     except requests.exceptions.RequestException as e:
         return None, str(e)
 
-@app.route("/gallery/tags", methods=["GET"])
+
+# 2. Change the route decorator to @gallery_bp.route
+# The final URL for this route will be /gallery/tags
+@gallery_bp.route("/tags", methods=["GET"])
 def get_all_tags():
-    """NEW lightweight endpoint to get a sorted list of all unique tags."""
     all_items = load_data()
     all_tags = set()
     for item in all_items:
@@ -69,7 +71,8 @@ def get_all_tags():
             all_tags.add(tag)
     return jsonify(sorted(list(all_tags)))
 
-@app.route("/gallery", methods=["GET"])
+# The final URL for this will be /gallery
+@gallery_bp.route("/", methods=["GET"])
 def get_gallery():
     all_items = load_data()
     search_query = request.args.get('q', '').lower().strip()
@@ -91,7 +94,7 @@ def get_gallery():
         "page": page, "limit": limit
     })
 
-@app.route("/gallery", methods=["POST"])
+@gallery_bp.route("/", methods=["POST"])
 def add_to_gallery():
     urls = request.json.get("urls")
     if not urls or not isinstance(urls, list): return jsonify({"error": "A list of URLs is required."}), 400
@@ -114,7 +117,7 @@ def add_to_gallery():
         save_data(new_items + gallery_data)
     return jsonify(results), 201
 
-@app.route("/gallery", methods=["DELETE"])
+@gallery_bp.route("/", methods=["DELETE"])
 def remove_from_gallery():
     item_id = request.json.get("id")
     if not item_id: return jsonify({"error": "Item ID is missing."}), 400
@@ -124,5 +127,4 @@ def remove_from_gallery():
     save_data(updated_data)
     return jsonify({"message": "Item removed successfully."}), 200
 
-if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+# 3. REMOVE the original app definition and the __main__ block

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Media Gallery</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --background-primary: #121212; --background-secondary: #1e1e1e; --background-tertiary: #2a2a2a;
+            --text-primary: #e0e0e0; --text-secondary: #a0a0a0; --accent-primary: #007bff;
+            --accent-secondary: #6c757d; --accent-success: #28a745; --accent-error: #dc3545; --shadow-color: rgba(0, 0, 0, 0.5);
+        }
+        body { font-family: 'Poppins', Arial, sans-serif; margin: 0; background: var(--background-primary); color: var(--text-primary); }
+        nav { position: sticky; top: 0; z-index: 1000; background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--background-tertiary); }
+        .nav-title-group { display: flex; align-items: baseline; gap: 1.5rem; }
+        .nav-title-group a { color: var(--text-secondary); text-decoration: none; font-weight: 600; transition: color 0.2s; }
+        .nav-title-group a:hover { color: var(--accent-primary); }
+        .nav-controls { display: flex; gap: 1rem; align-items: center; }
+        nav h1 { margin: 0; font-size: 1.5rem; }
+        .input-style { padding: 0.5rem 0.8rem; background: var(--background-tertiary); border: 1px solid #444; border-radius: 8px; color: var(--text-primary); font-size: 0.9rem; transition: border-color 0.2s, box-shadow 0.2s; }
+        #searchInput { width: 250px; }
+        .btn { padding: 0.6rem 1.2rem; border: none; border-radius: 8px; color: white; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease, transform 0.2s ease; text-decoration: none; display: inline-block; }
+        .btn:hover { transform: translateY(-2px); }
+        .btn-primary { background: var(--accent-primary); }
+        .btn-secondary { background: var(--accent-secondary); }
+        #gallery-container { max-width: 1800px; margin: 0 auto; padding: 2rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; }
+        .media-card { background: var(--background-secondary); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 4px 20px var(--shadow-color); position: relative; transition: transform 0.3s ease, box-shadow 0.3s ease; }
+        .media-card:hover { transform: scale(1.03); box-shadow: 0 8px 25px var(--shadow-color); }
+        .media-wrapper { background-color: #000; position: relative; cursor: pointer; }
+        .media-card img, .media-card video { width: 100%; display: block; aspect-ratio: 4 / 3; object-fit: contain; }
+        .remove-btn { position: absolute; top: 10px; right: 10px; z-index: 5; width: 30px; height: 30px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s ease; }
+        .media-card:hover .remove-btn { opacity: 1; }
+        .thumbnail-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; font-size: 3rem; color: #ccc; }
+        body.thumbnails-hidden .thumbnail-overlay { opacity: 1; }
+        .tags-section { padding: 0.75rem; border-top: 1px solid var(--background-tertiary); cursor: pointer; transition: max-height 0.4s ease-in-out; position: relative; }
+        .tags-preview { display: flex; flex-wrap: wrap; gap: 0.5rem; max-height: 5rem; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%); mask-image: linear-gradient(to bottom, black 50%, transparent 100%); }
+        .tags-preview.expanded { max-height: 1000px; -webkit-mask-image: none; mask-image: none; }
+        .tag { font-size: 0.8rem; background: var(--background-tertiary); padding: 0.2rem 0.6rem; border-radius: 5px; white-space: nowrap; }
+        #loader { text-align: center; font-size: 1.2rem; grid-column: 1 / -1; margin-top: 2rem; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); display: flex; justify-content: center; align-items: center; opacity: 0; visibility: hidden; z-index: 2000; transition: all 0.3s ease; }
+        .modal-overlay.visible { opacity: 1; visibility: visible; }
+        .modal-content { background: var(--background-secondary); padding: 2rem; border-radius: 12px; width: 90%; max-width: 500px; transform: scale(0.95); transition: transform 0.3s ease; }
+        .modal-content textarea { width: 95%; padding: 0.8rem; background: var(--background-tertiary); border: 1px solid #444; border-radius: 8px; color: var(--text-primary); font-size: 1rem; resize: vertical; }
+        #notification { position: fixed; bottom: 20px; left: 50%; transform: translate(-50%, 100px); padding: 1rem 1.5rem; border-radius: 8px; color: white; font-weight: 600; z-index: 3000; transition: transform 0.4s ease-in-out; }
+        #notification.show { transform: translate(-50%, 0); }
+        #lightbox-modal { padding: 1rem; box-sizing: border-box; }
+        #lightbox-modal .modal-content { background: none; padding: 0; width: auto; max-width: 95vw; display: flex; flex-direction: column; gap: 1rem; }
+        #lightbox-media { display: flex; justify-content: center; align-items: center; }
+        #lightbox-media img, #lightbox-media video { display: block; width: auto; height: auto; max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 8px; box-shadow: 0 0 40px rgba(0,0,0,0.8); }
+        #lightbox-close { position: fixed; top: 20px; right: 20px; width: 40px; height: 40px; font-size: 2rem; color: white; background: rgba(0,0,0,0.7); border-radius: 50%; border: 2px solid white; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 2001; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-title-group"><h1>Media Gallery</h1><a href="index.html">Video Classifier</a><a href="reddit_gallery.html">Reddit Gallery</a></div>
+        <div class="nav-controls">
+            <input type="text" id="searchInput" class="input-style" placeholder="Search tags (e.g., tag1 tag2)...">
+            <button id="toggleThumbsBtn" class="btn btn-secondary">Hide Media</button>
+            <button class="btn btn-primary" onclick="toggleModal('addMediaModal', true)">+ Add Media</button>
+        </div>
+    </nav>
+    <div id="gallery-container"></div>
+    <div id="loader">Loading gallery...</div>
+
+    <!-- Modals -->
+    <div class="modal-overlay" id="addMediaModal" onclick="handleOverlayClick(event, 'addMediaModal')"><div class="modal-content"><h2>Add New Media</h2><p style="color: var(--text-secondary);">Paste one or more links, each on a new line.</p><textarea id="mediaUrls" placeholder="https://rule34.xxx/index.php?page=post&s=view&id=..." rows="8" required></textarea><div style="display:flex;justify-content:flex-end;gap:1rem;margin-top:1rem;"><button class="btn" onclick="toggleModal('addMediaModal', false)">Cancel</button><button id="addBtn" class="btn btn-success" onclick="addMedia()">Add and Scrape</button></div></div></div>
+    <div class="modal-overlay" id="removeConfirmModal" onclick="handleOverlayClick(event, 'removeConfirmModal')"><div class="modal-content"><h2>Confirm Deletion</h2><p>Are you sure you want to remove this item?</p><div style="display:flex;justify-content:flex-end;gap:1rem;margin-top:1rem;"><button class="btn" onclick="toggleModal('removeConfirmModal', false)">Cancel</button><button class="btn btn-danger" onclick="confirmRemove()">Yes, Remove</button></div></div></div>
+    <div class="modal-overlay" id="lightbox-modal"><div class="modal-content"><div id="lightbox-media"></div><div style="display:flex;justify-content:center;margin-top:1rem;"><a id="lightbox-source-link" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-primary">View Source</a></div></div><div id="lightbox-close" onclick="closeLightbox()">&times;</div></div>
+    <div id="notification"></div>
+
+    <script>
+        const API_URL = 'http://localhost:5000';
+        const galleryContainer = document.getElementById('gallery-container');
+        const loader = document.getElementById('loader');
+        const searchInput = document.getElementById('searchInput');
+        let itemToRemoveId = null;
+
+        let state = {
+            items: [], currentPage: 1, limit: 50, totalItems: 0,
+            isLoading: false, searchQuery: ''
+        };
+
+        const renderItems = (items, append = false) => {
+            if (!append) galleryContainer.innerHTML = '';
+            if (items.length === 0 && !append) {
+                loader.textContent = 'No items found.';
+                loader.style.display = 'block';
+                return;
+            }
+
+            items.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'media-card'; card.id = `card-${item.id}`;
+                const mediaElement = item.type === 'video' ? `<video src="${item.media_url}" preload="metadata" muted loop></video>` : `<img src="${item.media_url}" alt="Gallery media" loading="lazy">`;
+                card.innerHTML = `
+                    <div class="media-wrapper" onclick="openLightbox('${item.id}')">
+                        <button class="remove-btn" onclick="event.stopPropagation(); openConfirmModal('${item.id}')">&times;</button>
+                        ${mediaElement}
+                        <div class="thumbnail-overlay"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg></div>
+                    </div>
+                    <div class="tags-section" onclick="event.currentTarget.querySelector('.tags-preview').classList.toggle('expanded')"><div class="tags-preview">${item.tags.map(tag => `<span class="tag">${tag}</span>`).join('')}</div></div>`;
+                galleryContainer.appendChild(card);
+            });
+            
+            // Force browser reflow
+            loader.style.display = 'none';
+            setTimeout(() => {
+                if (state.items.length < state.totalItems) {
+                    loader.style.display = 'block';
+                }
+            }, 10);
+        };
+
+        const fetchGallery = async (append = false) => {
+            if (state.isLoading) return;
+            state.isLoading = true;
+            loader.style.display = 'block';
+            
+            const url = `${API_URL}/gallery?page=${state.currentPage}&limit=${state.limit}&q=${state.searchQuery}`;
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                state.totalItems = data.total;
+                state.items = append ? [...state.items, ...data.items] : data.items;
+                renderItems(data.items, append);
+            } catch (error) {
+                loader.textContent = `Error: ${error.message}`;
+            } finally {
+                state.isLoading = false;
+            }
+        };
+
+        const resetAndFetch = () => {
+            state.currentPage = 1; state.items = [];
+            galleryContainer.innerHTML = '';
+            loader.textContent = 'Loading...';
+            fetchGallery(false);
+        };
+
+        let searchTimeout;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                state.searchQuery = searchInput.value.trim();
+                resetAndFetch();
+            }, 300);
+        });
+
+        let scrollTimeout;
+        const handleScroll = () => {
+            if (scrollTimeout) {
+                window.cancelAnimationFrame(scrollTimeout);
+            }
+            scrollTimeout = window.requestAnimationFrame(() => {
+                const nearBottom = (window.innerHeight + window.scrollY) >= document.body.offsetHeight - 500;
+                if (nearBottom && !state.isLoading && state.items.length < state.totalItems) {
+                    state.currentPage++;
+                    fetchGallery(true);
+                }
+            });
+        };
+        window.addEventListener('scroll', handleScroll);
+
+        const lightboxModal = document.getElementById('lightbox-modal');
+        const lightboxMedia = document.getElementById('lightbox-media');
+        const lightboxSourceLink = document.getElementById('lightbox-source-link');
+        function openLightbox(itemId) {
+            const item = state.items.find(i => i.id === itemId);
+            if (!item) return;
+            lightboxMedia.innerHTML = item.type === 'video' ? `<video src="${item.media_url}" preload="auto" autoplay controls muted loop></video>` : `<img src="${item.media_url}" alt="Enlarged media">`;
+            lightboxSourceLink.href = item.source_url;
+            toggleModal('lightbox-modal', true);
+        }
+        function closeLightbox() { lightboxMedia.innerHTML = ''; toggleModal('lightbox-modal', false); }
+        async function addMedia() {
+            const urlsText = document.getElementById("mediaUrls").value.trim();
+            const urls = urlsText.split(/[\s,]+/).filter(url => url.length > 0);
+            if(urls.length === 0) return;
+            const addBtn = document.getElementById('addBtn');
+            addBtn.disabled = true; addBtn.textContent = `Scraping ${urls.length}...`;
+            try {
+                await fetch(`${API_URL}/gallery`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls }) });
+                showNotification('Items added! Refreshing...', 'success');
+                toggleModal('addMediaModal', false);
+                document.getElementById("mediaUrls").value = "";
+                resetAndFetch();
+            } catch (error) {
+                showNotification(`Error: ${error.message}`, 'error');
+            } finally {
+                addBtn.disabled = false; addBtn.textContent = 'Add and Scrape';
+            }
+        }
+        function openConfirmModal(id) { itemToRemoveId = id; toggleModal('removeConfirmModal', true); }
+        async function confirmRemove() {
+            if (!itemToRemoveId) return;
+            toggleModal('removeConfirmModal', false);
+            try {
+                const res = await fetch(`${API_URL}/gallery`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: itemToRemoveId }) });
+                if (!res.ok) throw new Error((await res.json()).error);
+                showNotification('Item removed.', 'success');
+                state.items = state.items.filter(i => i.id !== itemToRemoveId);
+                state.totalItems--;
+                renderItems(state.items);
+            } catch (error) {
+                showNotification(`Error: ${error.message}`, 'error');
+            } finally {
+                itemToRemoveId = null;
+            }
+        }
+        const toggleThumbsBtn = document.getElementById('toggleThumbsBtn');
+        function setThumbnailVisibility(isHidden) { document.body.classList.toggle('thumbnails-hidden', isHidden); toggleThumbsBtn.textContent = isHidden ? 'Show Media' : 'Hide Media'; localStorage.setItem('galleryThumbnailsHidden', isHidden ? 'true' : 'false'); }
+        toggleThumbsBtn.addEventListener('click', () => setThumbnailVisibility(!document.body.classList.contains('thumbnails-hidden')));
+        function toggleModal(modalId, show) { document.getElementById(modalId).classList.toggle('visible', show); }
+        function handleOverlayClick(event, modalId) { if (event.currentTarget.id === modalId) { closeLightbox(); } }
+        function showNotification(message, type = 'success') { const n = document.getElementById('notification'); n.textContent = message; n.style.background = `var(--accent-${type})`; n.classList.add('show'); setTimeout(() => n.classList.remove('show'), 4000); }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            setThumbnailVisibility(localStorage.getItem('galleryThumbnailsHidden') === 'true');
+            fetchGallery();
+        });
+    </script>
+</body>
+</html>

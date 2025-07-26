@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Video Gallery</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --background-primary: #121212; --background-secondary: #1e1e1e; --background-tertiary: #2a2a2a;
+            --text-primary: #e0e0e0; --text-secondary: #a0a0a0; --accent-primary: #007bff;
+            --accent-secondary: #6c757d; --accent-success: #28a745; --accent-error: #dc3545; --shadow-color: rgba(0, 0, 0, 0.5);
+        }
+        body { font-family: 'Poppins', Arial, sans-serif; margin: 0; background: var(--background-primary); color: var(--text-primary); }
+        nav { position: sticky; top: 0; z-index: 1000; background: rgba(30, 30, 30, 0.85); backdrop-filter: blur(10px); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--background-tertiary); }
+        .nav-title-group { display: flex; align-items: baseline; gap: 1.5rem; }
+        .nav-title-group a { color: var(--text-secondary); text-decoration: none; font-weight: 600; transition: color 0.2s; }
+        .nav-title-group a:hover { color: var(--accent-primary); }
+        .nav-controls { display: flex; gap: 1rem; }
+        nav h1 { margin: 0; font-size: 1.5rem; font-weight: 700; }
+        .btn { padding: 0.6rem 1.2rem; border: none; border-radius: 8px; color: white; font-weight: 600; cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px var(--shadow-color); }
+        .btn-primary { background: var(--accent-primary); }
+        .btn-secondary { background: var(--accent-secondary); }
+        .btn-success { background: var(--accent-success); }
+        .btn-danger { background: var(--accent-error); }
+        .container { max-width: 1600px; margin: 0 auto; padding: 2rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
+        #loader { text-align: center; font-size: 1.2rem; grid-column: 1 / -1; }
+        .video-card { background: var(--background-secondary); border-radius: 12px; box-shadow: 0 4px 20px var(--shadow-color); transition: transform 0.3s ease, box-shadow 0.3s ease; display: flex; flex-direction: column; position: relative; }
+        .video-card:hover { transform: scale(1.03); box-shadow: 0 8px 25px var(--shadow-color); }
+        .video-card .thumbnail-link { text-decoration: none; color: inherit; display: block; position: relative; overflow: hidden; border-radius: 12px 12px 0 0;}
+        .video-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; }
+        .video-card-info { padding: 1rem; flex-grow: 1; display: flex; flex-direction: column; }
+        .video-card-info h3 { margin: 0 0 0.75rem; font-size: 1.1rem; font-weight: 600; }
+        .tags-container { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: auto; padding-top: 0.75rem; }
+        .tag { font-size: 0.8rem; color: var(--text-primary); background: var(--background-tertiary); padding: 0.2rem 0.6rem; border-radius: 5px; font-weight: 600; }
+        .primary-tag { background-color: var(--accent-error); color: white; box-shadow: 0 0 8px rgba(220, 53, 69, 0.5); }
+        .remove-btn { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; cursor: pointer; font-size: 16px; font-weight: bold; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s ease; z-index: 5;}
+        .video-card:hover .remove-btn { opacity: 1; }
+        .thumbnail-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; font-size: 3rem; color: #ccc; }
+        #gallery.thumbnails-hidden .thumbnail-overlay { opacity: 1; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); display: flex; justify-content: center; align-items: center; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; z-index: 2000; }
+        .modal-overlay.visible { opacity: 1; visibility: visible; }
+        .modal-content { background: var(--background-secondary); padding: 2rem; border-radius: 12px; width: 90%; max-width: 500px; transform: scale(0.95); transition: transform 0.3s ease; }
+        .modal-overlay.visible .modal-content { transform: scale(1); }
+        .modal-content h2 { margin-top: 0; }
+        .modal-content textarea { width: 95%; padding: 0.8rem; background: var(--background-tertiary); border: 1px solid #444; border-radius: 8px; color: var(--text-primary); font-size: 1rem; resize: vertical; }
+        .modal-buttons { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1rem; }
+        #notification { position: fixed; bottom: 20px; left: 50%; transform: translate(-50%, 100px); padding: 1rem 1.5rem; border-radius: 8px; color: white; font-weight: 600; transition: transform 0.4s ease-in-out; z-index: 3000; }
+        #notification.show { transform: translate(-50%, 0); }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-title-group">
+            <h1>My Video Gallery</h1>
+            <a href="gallery.html">Media Gallery</a>
+            <a href="reddit_gallery.html">Reddit Gallery</a>
+        </div>
+        <div class="nav-controls">
+            <button id="toggleThumbsBtn" class="btn btn-secondary">Hide Thumbnails</button>
+            <button class="btn btn-primary" onclick="toggleModal('addVideoModal', true)">+ Add Video</button>
+        </div>
+    </nav>
+    <div class="container" id="gallery"><p id="loader">Loading videos...</p></div>
+
+    <div class="modal-overlay" id="addVideoModal" onclick="handleOverlayClick(event, 'addVideoModal')"><div id="formContainer" class="modal-content"><h2>Add New Videos</h2><textarea id="videoLinks" placeholder="Paste one or more links, each on a new line..." rows="8" required></textarea><div class="modal-buttons"><button class="btn" onclick="toggleModal('addVideoModal', false)">Cancel</button><button id="addBtn" class="btn btn-success" onclick="addVideos()">Add Videos</button></div></div></div>
+    <div class="modal-overlay" id="removeConfirmModal" onclick="handleOverlayClick(event, 'removeConfirmModal')"><div id="confirmContainer" class="modal-content"><h2>Confirm Deletion</h2><p>Are you sure you want to remove this video? This action cannot be undone.</p><p id="videoToRemoveTitle" style="font-weight: bold; color: var(--text-secondary);"></p><div class="modal-buttons"><button class="btn" onclick="toggleModal('removeConfirmModal', false)">Cancel</button><button id="confirmRemoveBtn" class="btn btn-danger" onclick="confirmRemove()">Yes, Remove</button></div></div></div>
+    <div id="notification"></div>
+
+    <script>
+        const API_URL = 'http://localhost:5000';
+        const gallery = document.getElementById('gallery');
+        const loader = document.getElementById('loader');
+        const notification = document.getElementById('notification');
+        const toggleThumbsBtn = document.getElementById('toggleThumbsBtn');
+        let videoLinkToDelete = null;
+
+        function setThumbnailVisibility(isHidden) {
+            gallery.classList.toggle('thumbnails-hidden', isHidden);
+            toggleThumbsBtn.textContent = isHidden ? 'Show Thumbnails' : 'Hide Thumbnails';
+            localStorage.setItem('thumbnailsHidden', isHidden ? 'true' : 'false');
+        }
+        toggleThumbsBtn.addEventListener('click', () => setThumbnailVisibility(!gallery.classList.contains('thumbnails-hidden')));
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            setThumbnailVisibility(localStorage.getItem('thumbnailsHidden') === 'true');
+            fetchVideos();
+        });
+
+        async function fetchVideos() {
+            loader.style.display = 'block'; gallery.innerHTML = '';
+            try {
+                const res = await fetch(`${API_URL}/videos`);
+                if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+                renderGallery(await res.json());
+            } catch (error) {
+                gallery.innerHTML = `<p style="color: var(--accent-error);">Error loading videos: ${error.message}</p>`;
+            } finally { loader.style.display = 'none'; }
+        }
+
+        function renderGallery(videos) {
+            if (videos.length === 0) {
+                gallery.innerHTML = '<p>No videos found. Add one to get started!</p>';
+                return;
+            }
+            const videoCardsHTML = videos.map(video => {
+                const primaryTag = video.tags[0] || 'Uncategorized';
+                const secondaryTags = video.tags.slice(1);
+                return `
+                <div class="video-card" id="card-${btoa(video.link)}">
+                    <button class="remove-btn" onclick="openConfirmModal('${video.link}', '${video.title.replace(/'/g, "\\'")}')">&times;</button>
+                    <a href="${video.link}" target="_blank" rel="noopener noreferrer" class="thumbnail-link">
+                        <img src="${video.thumb}" alt="Thumbnail for ${video.title}" loading="lazy">
+                        <div class="thumbnail-overlay"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg></div>
+                    </a>
+                    <div class="video-card-info"><h3>${video.title}</h3><div class="tags-container"><span class="tag primary-tag">${primaryTag}</span>${secondaryTags.map(tag => `<span class="tag">${tag}</span>`).join('')}</div></div>
+                </div>`;
+            }).join('');
+            gallery.innerHTML = videoCardsHTML;
+        }
+        
+        async function addVideos() {
+            const linksText = document.getElementById("videoLinks").value.trim();
+            const urls = linksText.split(/[\s,]+/).filter(url => url.length > 0);
+            if (urls.length === 0) {
+                showNotification("Please provide at least one valid link.", "error"); return;
+            }
+            const addBtn = document.getElementById('addBtn');
+            addBtn.disabled = true; addBtn.textContent = `Adding ${urls.length} link(s)...`;
+            try {
+                const res = await fetch(`${API_URL}/add`, {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ urls })
+                });
+                if (!res.ok) throw new Error(`Server error: ${res.status}`);
+                const results = await res.json();
+                let successCount = 0;
+                results.forEach(result => {
+                    if(result.status === 'success') successCount++;
+                    else if (result.status === 'duplicate') showNotification(`Skipped duplicate: ${result.url}`, 'secondary');
+                    else showNotification(`Failed to add: ${result.url}`, 'error');
+                });
+                showNotification(`${successCount} of ${urls.length} links added successfully.`, 'success');
+                document.getElementById("videoLinks").value = "";
+                toggleModal('addVideoModal', false);
+                if (successCount > 0) await fetchVideos();
+            } catch (error) {
+                showNotification(`Error adding videos: ${error.message}`, 'error');
+            } finally {
+                addBtn.disabled = false; addBtn.textContent = 'Add Videos';
+            }
+        }
+
+        function openConfirmModal(link, title) { videoLinkToDelete = link; document.getElementById('videoToRemoveTitle').textContent = title; toggleModal('removeConfirmModal', true); }
+        async function confirmRemove() {
+            if (!videoLinkToDelete) return;
+            toggleModal('removeConfirmModal', false);
+            try {
+                const res = await fetch(`${API_URL}/remove`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link: videoLinkToDelete }) });
+                if (!res.ok) throw new Error('Server failed to remove video.');
+                showNotification('Video removed.', 'success');
+                await fetchVideos();
+            } catch (error) {
+                showNotification(error.message, 'error');
+            } finally { videoLinkToDelete = null; }
+        }
+        
+        function toggleModal(modalId, show) { document.getElementById(modalId).classList.toggle('visible', show); }
+        function handleOverlayClick(event, modalId) { if (event.target.id === modalId) { toggleModal(modalId, false); } }
+        function showNotification(message, type = 'success') {
+            const n = document.getElementById('notification');
+            n.textContent = message;
+            n.style.background = `var(--accent-${type})`;
+            n.classList.add('show');
+            setTimeout(() => { n.classList.remove('show'); }, 3000);
+        }
+    </script>
+</body>
+</html>

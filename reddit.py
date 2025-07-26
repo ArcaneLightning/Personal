@@ -1,5 +1,6 @@
-from flask import Flask, jsonify, request
-from flask_cors import CORS
+# reddit.py - MODIFIED
+
+from flask import Blueprint, jsonify, request
 import requests
 import json
 import os
@@ -8,12 +9,12 @@ import threading
 import html
 from bs4 import BeautifulSoup
 
-app = Flask(__name__)
-CORS(app)
+# 1. Create a Blueprint object with a URL prefix
+reddit_bp = Blueprint('reddit', __name__, url_prefix='/reddit-gallery')
 
 DATA_FILE = "cleaned_data.json"
 
-# --- Rate Limit & Token Management ---
+# --- ALL HELPER FUNCTIONS (rate limiting, data handling, scraping) REMAIN EXACTLY THE SAME ---
 rate_limit_status = {
     "remaining": 100, "reset_time": time.time() + 600, "lock": threading.Lock()
 }
@@ -22,7 +23,7 @@ redgifs_token = { "token": None, "expiry": 0 }
 def get_redgifs_token():
     if redgifs_token["token"] and time.time() < redgifs_token["expiry"] - 60:
         return redgifs_token["token"]
-    print("       - Fetching new RedGifs API token...")
+    print("      - Fetching new RedGifs API token...")
     try:
         res = requests.get("https://api.redgifs.com/v2/auth/temporary")
         res.raise_for_status()
@@ -30,10 +31,10 @@ def get_redgifs_token():
         redgifs_token["token"] = data.get("token")
         redgifs_token["expiry"] = data.get("expires_at", 0)
         if not redgifs_token["token"]: return None
-        print("       - New RedGifs token acquired.")
+        print("      - New RedGifs token acquired.")
         return redgifs_token["token"]
     except requests.RequestException as e:
-        print(f"       - Could not get RedGifs token: {e}")
+        print(f"      - Could not get RedGifs token: {e}")
         return None
 
 def update_rate_limit_status(headers):
@@ -51,7 +52,6 @@ def check_and_wait_for_rate_limit():
                 print(f"\n[RATE LIMIT] Proactively waiting for {wait_duration + 1:.0f}s...")
                 time.sleep(wait_duration + 1)
 
-# --- Data Handling ---
 def load_data():
     if not os.path.exists(DATA_FILE): return []
     try:
@@ -74,23 +74,18 @@ def scrape_reddit_post(post_url):
         media_source_data = crosspost_data
         if crosspost_data.get('crosspost_parent_list'):
             media_source_data = crosspost_data['crosspost_parent_list'][0]
-
         results, media_url, media_type = [], None, "image"
-
-        # --- Subreddit Normalization (Write Time) ---
         clean_name = crosspost_data.get('subreddit_name_prefixed', '').split('/')[-1]
         normalized_subreddit = f"r/{clean_name}"
-
         if 'imgur.com' in media_source_data.get('domain', ''):
             imgur_url = media_source_data.get('url_overridden_by_dest')
             if not imgur_url: return [], "Could not find Imgur URL in post data."
-            
             if imgur_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
                 media_url = imgur_url
             elif imgur_url.endswith('.gifv'):
                 media_url = imgur_url.replace('.gifv', '.mp4')
                 media_type = "video"
-            else: # It's a page/album link, scrape it
+            else:
                 try:
                     imgur_res = requests.get(imgur_url, headers=headers, timeout=10)
                     imgur_soup = BeautifulSoup(imgur_res.text, "html.parser")
@@ -104,7 +99,6 @@ def scrape_reddit_post(post_url):
                             media_url = image_tag['content'].split('?')[0]
                 except Exception as e:
                     return [], f"Failed to scrape Imgur page: {e}"
-        
         elif media_source_data.get('domain') == 'redgifs.com':
             token = get_redgifs_token()
             if not token: return [], "Failed to get RedGifs auth token."
@@ -119,7 +113,6 @@ def scrape_reddit_post(post_url):
                     media_url = rg_data['gif']['urls']['hd']
                     media_type = "video"
                 except Exception: return [], "Failed to get RedGifs URL after auth."
-        
         elif media_source_data.get('is_gallery', False):
             gallery_items = media_source_data.get('gallery_data', {}).get('items', [])
             media_metadata = media_source_data.get('media_metadata', {})
@@ -131,7 +124,6 @@ def scrape_reddit_post(post_url):
                 gallery_media_url = f"https://i.redd.it/{media_id}.{extension}"
                 results.append({"id": f"{crosspost_data['id']}_{media_id}", "title": crosspost_data['title'], "author": crosspost_data['author'], "subreddit": normalized_subreddit, "media_url": gallery_media_url, "type": "image", "source_url": crosspost_data['permalink']})
             return results, None
-
         elif media_source_data.get('is_self') and media_source_data.get('selftext_html'):
             html_content = html.unescape(media_source_data['selftext_html'])
             soup = BeautifulSoup(html_content, 'html.parser')
@@ -142,15 +134,12 @@ def scrape_reddit_post(post_url):
                 if clean_url.endswith(('.jpg', '.jpeg', '.png', '.gif')):
                     media_url = clean_url
                     media_type = "image"
-        
         else:
             if media_source_data.get('is_video', False) and media_source_data.get('secure_media', {}).get('reddit_video'):
                 media_url, media_type = media_source_data['secure_media']['reddit_video']['fallback_url'], "video"
             elif 'url_overridden_by_dest' in media_source_data and media_source_data['url_overridden_by_dest'].endswith(('.jpg', '.jpeg', '.png', '.gif')):
-                 media_url = media_source_data['url_overridden_by_dest']
-        
+                media_url = media_source_data['url_overridden_by_dest']
         if not media_url: return [], "Could not find a direct link to a supported media type."
-        
         results.append({
             "id": crosspost_data['id'], "title": crosspost_data['title'], "author": crosspost_data['author'],
             "subreddit": normalized_subreddit, "media_url": media_url,
@@ -159,60 +148,55 @@ def scrape_reddit_post(post_url):
         return results, None
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 429:
-            print("       - Hit rate limit unexpectedly. Waiting 60s...")
+            print("      - Hit rate limit unexpectedly. Waiting 60s...")
             time.sleep(60)
             return scrape_reddit_post(post_url)
         return [], f"HTTP Error: {e}"
     except Exception as e:
         return [], f"An error occurred: {str(e)}"
 
-@app.route("/reddit-gallery/subreddits", methods=["GET"])
+
+# 2. Change the route decorator to @reddit_bp.route
+# The final URL will be /reddit-gallery/subreddits
+@reddit_bp.route("/subreddits", methods=["GET"])
 def get_subreddits():
-    """Lightweight endpoint to get a sorted list of unique subreddits."""
     all_items = load_data()
-    # Normalize each subreddit to the "r/name" format before creating a unique set.
     subreddits = sorted(list({
         f"r/{item.get('subreddit', '').split('/')[-1]}"
         for item in all_items if item.get("subreddit")
     }))
     return jsonify(subreddits)
 
-@app.route("/reddit-gallery", methods=["GET"])
+# The final URL will be /reddit-gallery
+@reddit_bp.route("/", methods=["GET"])
 def get_gallery():
     all_items = load_data()
     selected_sub = request.args.get('subreddit', '').strip()
     search_query = request.args.get('q', '').lower().strip()
-
     if selected_sub:
-        # Normalize the stored subreddit name before comparing it to the selection.
         all_items = [
-            item for item in all_items 
+            item for item in all_items
             if f"r/{item.get('subreddit', '').split('/')[-1]}" == selected_sub
         ]
     if search_query:
-        all_items = [item for item in all_items if 
+        all_items = [item for item in all_items if
                      search_query in item.get('title', '').lower() or
                      search_query in item.get('author', '').lower() or
-                     # Normalize the stored subreddit name before searching.
                      search_query in f"r/{item.get('subreddit', '').split('/')[-1]}".lower()]
-
     page = request.args.get('page', 1, type=int)
     limit = request.args.get('limit', 50, type=int)
     start = (page - 1) * limit
     end = start + limit
     paginated_items = all_items[start:end]
-
-    # Normalize the subreddit for each item in the final paginated response.
     for item in paginated_items:
         if 'subreddit' in item and item['subreddit']:
             item['subreddit'] = f"r/{item['subreddit'].split('/')[-1]}"
-
     return jsonify({
         "items": paginated_items, "total": len(all_items),
         "page": page, "limit": limit
     })
 
-@app.route("/reddit-gallery", methods=["POST"])
+@reddit_bp.route("/", methods=["POST"])
 def add_to_gallery():
     urls = request.json.get("urls")
     if not urls or not isinstance(urls, list): return jsonify({"error": "A list of URLs is required."}), 400
@@ -237,7 +221,7 @@ def add_to_gallery():
         save_data(new_items_to_add + gallery_data)
     return jsonify(results), 201
 
-@app.route("/reddit-gallery", methods=["DELETE"])
+@reddit_bp.route("/", methods=["DELETE"])
 def remove_from_gallery():
     item_id = request.json.get("id")
     if not item_id: return jsonify({"error": "Item ID is missing."}), 400
@@ -247,5 +231,4 @@ def remove_from_gallery():
     save_data(updated_data)
     return jsonify({"message": "Item removed successfully."}), 200
 
-if __name__ == "__main__":
-    app.run(debug=True, port=5002)
+# 3. REMOVE the original app definition and the __main__ block
