@@ -55,7 +55,11 @@
 </head>
 <body>
     <nav>
-        <div class="nav-title-group"><h1>Media Gallery</h1><a href="index.html">Video Classifier</a><a href="reddit_gallery.html">Reddit Gallery</a></div>
+    <div class="nav-title-group">
+        <h1>Media Gallery</h1>
+            <a href="{{ url_for('index') }}">Video Classifier</a>
+            <a href="{{ url_for('reddit_page') }}">Reddit Gallery</a>
+        </div>
         <div class="nav-controls">
             <input type="text" id="searchInput" class="input-style" placeholder="Search tags (e.g., tag1 tag2)...">
             <button id="toggleThumbsBtn" class="btn btn-secondary">Hide Media</button>
@@ -65,14 +69,14 @@
     <div id="gallery-container"></div>
     <div id="loader">Loading gallery...</div>
 
-    <!-- Modals -->
     <div class="modal-overlay" id="addMediaModal" onclick="handleOverlayClick(event, 'addMediaModal')"><div class="modal-content"><h2>Add New Media</h2><p style="color: var(--text-secondary);">Paste one or more links, each on a new line.</p><textarea id="mediaUrls" placeholder="https://rule34.xxx/index.php?page=post&s=view&id=..." rows="8" required></textarea><div style="display:flex;justify-content:flex-end;gap:1rem;margin-top:1rem;"><button class="btn" onclick="toggleModal('addMediaModal', false)">Cancel</button><button id="addBtn" class="btn btn-success" onclick="addMedia()">Add and Scrape</button></div></div></div>
     <div class="modal-overlay" id="removeConfirmModal" onclick="handleOverlayClick(event, 'removeConfirmModal')"><div class="modal-content"><h2>Confirm Deletion</h2><p>Are you sure you want to remove this item?</p><div style="display:flex;justify-content:flex-end;gap:1rem;margin-top:1rem;"><button class="btn" onclick="toggleModal('removeConfirmModal', false)">Cancel</button><button class="btn btn-danger" onclick="confirmRemove()">Yes, Remove</button></div></div></div>
     <div class="modal-overlay" id="lightbox-modal"><div class="modal-content"><div id="lightbox-media"></div><div style="display:flex;justify-content:center;margin-top:1rem;"><a id="lightbox-source-link" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-primary">View Source</a></div></div><div id="lightbox-close" onclick="closeLightbox()">&times;</div></div>
     <div id="notification"></div>
 
     <script>
-        const API_URL = 'http://localhost:5000';
+        // FIXED: API_URL is now a relative path, not a hardcoded localhost address.
+        const API_URL = ''; 
         const galleryContainer = document.getElementById('gallery-container');
         const loader = document.getElementById('loader');
         const searchInput = document.getElementById('searchInput');
@@ -105,7 +109,6 @@
                 galleryContainer.appendChild(card);
             });
             
-            // Force browser reflow
             loader.style.display = 'none';
             setTimeout(() => {
                 if (state.items.length < state.totalItems) {
@@ -119,6 +122,7 @@
             state.isLoading = true;
             loader.style.display = 'block';
             
+            // FIXED: The URL now correctly points to the /gallery endpoint of your blueprint
             const url = `${API_URL}/gallery?page=${state.currentPage}&limit=${state.limit}&q=${state.searchQuery}`;
             try {
                 const res = await fetch(url);
@@ -182,6 +186,7 @@
             const addBtn = document.getElementById('addBtn');
             addBtn.disabled = true; addBtn.textContent = `Scraping ${urls.length}...`;
             try {
+                // FIXED: The URL now correctly points to the /gallery endpoint
                 await fetch(`${API_URL}/gallery`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls }) });
                 showNotification('Items added! Refreshing...', 'success');
                 toggleModal('addMediaModal', false);
@@ -198,6 +203,7 @@
             if (!itemToRemoveId) return;
             toggleModal('removeConfirmModal', false);
             try {
+                // FIXED: The URL now correctly points to the /gallery endpoint
                 const res = await fetch(`${API_URL}/gallery`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: itemToRemoveId }) });
                 if (!res.ok) throw new Error((await res.json()).error);
                 showNotification('Item removed.', 'success');

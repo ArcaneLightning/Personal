@@ -1,43 +1,46 @@
-# app.py - NEW MAIN FILE
+# app.py - CORRECTED
 
-from flask import Flask, render_template
+from flask import Flask, render_template # <-- Make sure render_template is imported
 from flask_cors import CORS
 
 # Import the blueprint objects from your refactored files
-from videos import video_bp
+from videos import video_bp, load_cache
 from gallery import gallery_bp
 from reddit import reddit_bp
 
 # Initialize the main Flask application
 app = Flask(__name__)
-CORS(app) # Apply CORS to the entire application
+CORS(app) 
 
 # Register each blueprint with the main app
-# The application will now handle all routes defined in these blueprints
 app.register_blueprint(video_bp)
 app.register_blueprint(gallery_bp)
 app.register_blueprint(reddit_bp)
 
-# This route will now serve your main HTML page
+
+# --- ADD THESE ROUTES ---
+# This is the fix. These routes tell Flask how to serve your HTML pages.
+
 @app.route('/')
 def index():
+    """Serves the main video classifier page."""
     return render_template('index.html')
 
-# Add routes for your other main pages
-@app.route('/gallery-page') # This URL is what the user types in the browser
+@app.route('/gallery-page')
 def gallery_page():
-    return render_template('gallery.html') # This is the file in your templates folder
+    """Serves the media gallery page."""
+    return render_template('gallery.html')
 
 @app.route('/reddit-page')
 def reddit_page():
-    return render_template('reddit.html')
+    """Serves the Reddit gallery page."""
+    return render_template('reddit_gallery.html')
 
-# This is the only file that needs the __main__ block
-# It runs the single app, which now includes all of your functionality
+# --- END OF FIX ---
+
+
 if __name__ == "__main__":
-    # The load_cache() call from your original videos server can be run here at startup
-    from videos import load_cache
+    # The load_cache() call from your videos server can be run here at startup
     load_cache()
-
     # Run the app on port 5000
     app.run(debug=True, port=5000)

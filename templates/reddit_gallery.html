@@ -41,11 +41,7 @@
         .remove-btn { position: absolute; top: 10px; right: 10px; z-index: 5; width: 30px; height: 30px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s ease; }
         .media-card:hover .remove-btn { opacity: 1; }
         .thumbnail-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; font-size: 3rem; color: #ccc; }
-        
-        /* --- THIS IS THE FIX --- */
-        /* The selector now correctly targets the body tag, which the JavaScript modifies. */
         body.thumbnails-hidden .thumbnail-overlay { opacity: 1; }
-        
         #loader { text-align: center; font-size: 1.2rem; grid-column: 1 / -1; margin-top: 2rem; }
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); display: flex; justify-content: center; align-items: center; opacity: 0; visibility: hidden; z-index: 2000; transition: all 0.3s ease; }
         .modal-overlay.visible { opacity: 1; visibility: visible; }
@@ -64,7 +60,11 @@
 </head>
 <body>
     <nav>
-        <div class="nav-title-group"><h1>Reddit Gallery</h1><a href="index.html">Video Classifier</a><a href="gallery.html">Media Gallery</a></div>
+        <div class="nav-title-group">
+            <h1>Reddit Gallery</h1>
+            <a href="{{ url_for('index') }}">Video Classifier</a>
+            <a href="{{ url_for('gallery_page') }}">Media Gallery</a>
+        </div>
         <div class="nav-controls">
             <select id="subredditSort" class="input-style"></select>
             <input type="text" id="searchInput" class="input-style" placeholder="Search...">
@@ -75,14 +75,14 @@
     <div id="gallery-container"></div>
     <div id="loader">Loading gallery...</div>
 
-    <!-- Modals -->
     <div class="modal-overlay" id="addMediaModal" onclick="handleOverlayClick(event,'addMediaModal')"><div class="modal-content"><h2>Add New Reddit Posts</h2><p style="color: var(--text-secondary);">Paste one or more Reddit post links.</p><textarea id="mediaUrls" placeholder="https://www.reddit.com/r/..." rows="8"></textarea><div style="display:flex;justify-content:flex-end;gap:1rem;margin-top:1rem"><button class="btn" onclick="toggleModal('addMediaModal', false)">Cancel</button><button id="addBtn" class="btn btn-success" onclick="addMedia()">Add and Fetch</button></div></div></div>
     <div class="modal-overlay" id="removeConfirmModal" onclick="handleOverlayClick(event,'removeConfirmModal')"><div class="modal-content"><h2>Confirm Deletion</h2><p>Are you sure you want to remove this item?</p><div style="display:flex;justify-content:flex-end;gap:1rem;margin-top:1rem"><button class="btn" onclick="toggleModal('removeConfirmModal', false)">Cancel</button><button class="btn btn-danger" onclick="confirmRemove()">Yes, Remove</button></div></div></div>
     <div class="modal-overlay" id="lightbox-modal"><div class="modal-content"><div id="lightbox-media"></div><div id="lightbox-controls"><h3 id="lightbox-title"></h3><p id="lightbox-info" style="margin:0 0 1rem 0;"></p><a id="lightbox-source-link" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-primary">View Original Post</a></div></div><div id="lightbox-close" onclick="closeLightbox()">&times;</div></div>
     <div id="notification"></div>
     
     <script>
-        const API_URL = 'http://localhost:5000';
+        // FIXED: API_URL is now a relative path
+        const API_URL = '';
         const galleryContainer = document.getElementById('gallery-container');
         const loader = document.getElementById('loader');
         const searchInput = document.getElementById('searchInput');
@@ -122,6 +122,7 @@
             state.isLoading = true;
             loader.style.display = 'block';
             
+            // FIXED: The URL now correctly points to the /reddit-gallery blueprint endpoint
             const url = `${API_URL}/reddit-gallery?page=${state.currentPage}&limit=${state.limit}&q=${state.searchQuery}&subreddit=${state.selectedSubreddit}`;
             try {
                 const res = await fetch(url);
@@ -177,6 +178,7 @@
 
         async function fetchAllSubreddits() {
             try {
+                // FIXED: The URL points to the correct blueprint sub-route
                 const res = await fetch(`${API_URL}/reddit-gallery/subreddits`);
                 if (!res.ok) throw new Error(`Server responded with ${res.status}`);
                 const subreddits = await res.json();

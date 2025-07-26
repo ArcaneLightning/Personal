@@ -56,8 +56,8 @@
     <nav>
         <div class="nav-title-group">
             <h1>My Video Gallery</h1>
-            <a href="gallery.html">Media Gallery</a>
-            <a href="reddit_gallery.html">Reddit Gallery</a>
+            <a href="{{ url_for('gallery_page') }}">Media Gallery</a>
+            <a href="{{ url_for('reddit_page') }}">Reddit Gallery</a>
         </div>
         <div class="nav-controls">
             <button id="toggleThumbsBtn" class="btn btn-secondary">Hide Thumbnails</button>
@@ -71,7 +71,8 @@
     <div id="notification"></div>
 
     <script>
-        const API_URL = 'http://localhost:5000';
+        // FIXED: API_URL is now a relative path
+        const API_URL = '';
         const gallery = document.getElementById('gallery');
         const loader = document.getElementById('loader');
         const notification = document.getElementById('notification');
@@ -93,6 +94,7 @@
         async function fetchVideos() {
             loader.style.display = 'block'; gallery.innerHTML = '';
             try {
+                // FIXED: URL points to the correct blueprint endpoint
                 const res = await fetch(`${API_URL}/videos`);
                 if (!res.ok) throw new Error(`Server responded with ${res.status}`);
                 renderGallery(await res.json());
@@ -131,6 +133,7 @@
             const addBtn = document.getElementById('addBtn');
             addBtn.disabled = true; addBtn.textContent = `Adding ${urls.length} link(s)...`;
             try {
+                // FIXED: URL points to the correct blueprint endpoint
                 const res = await fetch(`${API_URL}/add`, {
                     method: "POST", headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ urls })
@@ -159,6 +162,7 @@
             if (!videoLinkToDelete) return;
             toggleModal('removeConfirmModal', false);
             try {
+                // FIXED: URL points to the correct blueprint endpoint
                 const res = await fetch(`${API_URL}/remove`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link: videoLinkToDelete }) });
                 if (!res.ok) throw new Error('Server failed to remove video.');
                 showNotification('Video removed.', 'success');
