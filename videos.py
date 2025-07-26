@@ -71,6 +71,7 @@ def get_or_generate_thumbnail(link):
         if link in THUMBNAIL_CACHE:
             return THUMBNAIL_CACHE[link]
 
+    # This part runs if the thumbnail is not in the cache
     thumb_url = "https://via.placeholder.com/320x180?text=Error"
     try:
         response = requests.get(link, timeout=10, headers=REQUEST_HEADERS)
@@ -130,13 +131,18 @@ def parse_videos():
 @video_bp.route("/videos")
 def get_videos():
     """
-    Returns the complete list of videos, enriched with thumbnail URLs from the cache.
-    This uses the fast and stable logic from your local version.
+    Returns the list of videos, ensuring each has a thumbnail from the cache.
+    If a thumbnail is missing from the cache, it will be fetched.
     """
     try:
         videos = parse_videos()
+        
+        # This loop ensures every video gets a thumbnail, either from cache or by fetching.
         for video in videos:
-            video['thumb'] = THUMBNAIL_CACHE.get(video['link'], "https://via.placeholder.com/320x180?text=Error")
+            video['thumb'] = get_or_generate_thumbnail(video['link'])
+
+        save_cache() # Save any new thumbnails that might have been fetched
+
         return jsonify(videos)
     except Exception as e:
         logging.error(f"An error occurred in /videos endpoint: {e}", exc_info=True)
