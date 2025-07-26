@@ -60,11 +60,15 @@ def fetch_video_details(url):
         return "Untitled", "Unknown Channel", set(), [], [], [], url
 
 def get_or_generate_thumbnail(link):
+    """
+    FIXED: Fetches a thumbnail if it's a cache miss but no longer saves the
+    entire cache file. Caching is handled by the calling route.
+    """
     with cache_lock:
         if link in THUMBNAIL_CACHE:
             return THUMBNAIL_CACHE[link]
     
-    # This part runs if not in cache
+    # This part runs if not in cache (outside the lock to allow parallel fetches)
     thumb_url = "https://via.placeholder.com/320x180?text=No+Thumbnail"
     try:
         response = http_session.get(link, timeout=10)
@@ -76,10 +80,10 @@ def get_or_generate_thumbnail(link):
     except requests.exceptions.RequestException as e:
         logging.warning(f"Thumbnail fetch failed for {link}: {e}")
 
-    # Cache the result and save
+    # Cache the result in memory
     with cache_lock:
         THUMBNAIL_CACHE[link] = thumb_url
-        save_cache() # Consider saving periodically instead of on every miss if performance is critical
+        
     return thumb_url
 
 def load_cache():
@@ -93,7 +97,7 @@ def load_cache():
 def save_cache():
     # This should only be called within a cache_lock context
     with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(THUMBNAIL_CACHE, f) # No need for indent in production
+        json.dump(THUMBNAIL_CACHE, f)
 
 def parse_videos():
     videos = []
@@ -114,8 +118,7 @@ def parse_videos():
 @video_bp.route("/videos")
 def get_videos():
     """
-    Returns a paginated, searchable list of videos with their thumbnails.
-    This is now the primary data-loading endpoint.
+    FIXED: Now saves the thumbnail cache only ONCE after all parallel fetches are complete.
     """
     page = request.args.get('page', 1, type=int)
     limit = request.args.get('limit', 50, type=int)
@@ -123,7 +126,6 @@ def get_videos():
 
     all_videos = parse_videos()
     
-    # --- Filtering Logic ---
     filtered_videos = all_videos
     if query:
         search_terms = query.split()
@@ -136,20 +138,20 @@ def get_videos():
         ]
 
     total_filtered = len(filtered_videos)
-    
-    # --- Pagination Logic ---
     start = (page - 1) * limit
     end = start + limit
     paginated_videos = filtered_videos[start:end]
 
-    # --- Enrich with Thumbnails ---
-    # Using a thread pool to fetch thumbnails for the current page in parallel
     def fetch_thumb_for_video(video):
         video['thumb'] = get_or_generate_thumbnail(video['link'])
         return video
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         enriched_videos = list(executor.map(fetch_thumb_for_video, paginated_videos))
+
+    # After all threads are done, save the potentially updated cache once.
+    with cache_lock:
+        save_cache()
 
     return jsonify({
         "videos": enriched_videos,
@@ -167,19 +169,25 @@ def get_thumbnail_route():
     if not link:
         return jsonify({"error": "Missing link"}), 400
     thumb_url = get_or_generate_thumbnail(link)
+    # Optionally save cache here if this route is used frequently for new items
+    with cache_lock:
+        save_cache()
     return jsonify({"link": link, "thumb": thumb_url})
 
 @video_bp.route("/add", methods=["POST"])
 def add_video():
+    """
+    FIXED: Now saves the thumbnail cache only ONCE after all new videos are added.
+    """
     data = request.json
     urls = data.get("urls")
     if not urls or not isinstance(urls, list):
         return jsonify({"error": "A list of URLs is required."}), 400
     
     results = []
+    any_success = False
     existing_links = {v['link'] for v in parse_videos()}
 
-    # Use a set for faster lookups
     with open(VIDEO_FILE, "a", encoding="utf-8") as f:
         for url in urls:
             if url in existing_links:
@@ -190,7 +198,6 @@ def add_video():
                 if title == "Untitled":
                     raise Exception("Failed to fetch video details")
                 
-                # Check for duplicates again with the final URL
                 if final_url in existing_links:
                     results.append({"status": "duplicate", "url": final_url})
                     continue
@@ -199,14 +206,19 @@ def add_video():
                 entry = f"{title} | {','.join(final_tags)} | {final_url}\n"
                 f.write(entry)
                 
-                # Pre-cache the thumbnail in the background
                 get_or_generate_thumbnail(final_url) 
                 
                 results.append({"status": "success", "title": title, "final_url": final_url})
                 existing_links.add(final_url)
+                any_success = True
             except Exception as e:
                 logging.error(f"Error processing url {url}: {e}")
                 results.append({"status": "error", "url": url, "reason": str(e)})
+    
+    # If any videos were successfully added and their thumbnails cached, save the file.
+    if any_success:
+        with cache_lock:
+            save_cache()
 
     return jsonify(results), 201
 
@@ -231,7 +243,6 @@ def remove_video():
     with open(VIDEO_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines_to_keep)
         
-    # Remove from thumbnail cache as well
     with cache_lock:
         if link_to_remove in THUMBNAIL_CACHE:
             del THUMBNAIL_CACHE[link_to_remove]
