@@ -3,6 +3,7 @@ import json
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from bs4 import BeautifulSoup
@@ -45,6 +46,7 @@ def fetch_video_details(url):
         if channel_link:
             channel_name = channel_link.text.strip()
 
+        # Actor and tag scraping logic...
         male_actors, female_actors, trans_actors = set(), set(), set()
         actor_wrapper = soup.select_one("div.pornstarsWrapper")
         if actor_wrapper:
@@ -66,10 +68,10 @@ def fetch_video_details(url):
 
 
 def get_or_generate_thumbnail(link):
-    """Gets a thumbnail from the cache or generates and caches it if missing."""
+    """Gets a thumbnail from the cache or generates it. This function is thread-safe."""
     with cache_lock:
         if link in THUMBNAIL_CACHE:
-            return THUMBNAIL_CACHE[link]
+            return
 
     # This part runs if the thumbnail is not in the cache
     thumb_url = "https://via.placeholder.com/320x180?text=Error"
@@ -85,7 +87,7 @@ def get_or_generate_thumbnail(link):
 
     with cache_lock:
         THUMBNAIL_CACHE[link] = thumb_url
-    return thumb_url
+    return
 
 
 def load_cache():
@@ -131,17 +133,23 @@ def parse_videos():
 @video_bp.route("/videos")
 def get_videos():
     """
-    Returns the list of videos, ensuring each has a thumbnail from the cache.
-    If a thumbnail is missing from the cache, it will be fetched.
+    FIXED: Reintroduces parallel fetching for missing thumbnails to prevent server timeouts,
+    while enriching the video data correctly from the cache.
     """
     try:
         videos = parse_videos()
-        
-        # This loop ensures every video gets a thumbnail, either from cache or by fetching.
-        for video in videos:
-            video['thumb'] = get_or_generate_thumbnail(video['link'])
+        links = [v['link'] for v in videos]
 
-        save_cache() # Save any new thumbnails that might have been fetched
+        # Use the ThreadPoolExecutor to fetch any missing thumbnails in parallel.
+        # This is fast and prevents timeouts.
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            executor.map(get_or_generate_thumbnail, links)
+
+        # Now that the cache is populated, enrich the video objects.
+        for video in videos:
+            video['thumb'] = THUMBNAIL_CACHE.get(video['link'], "https://via.placeholder.com/320x180?text=Error")
+
+        save_cache()  # Save any newly fetched thumbnails to the file.
 
         return jsonify(videos)
     except Exception as e:
@@ -152,6 +160,7 @@ def get_videos():
 @video_bp.route("/add", methods=["POST"])
 def add_video():
     """Adds new videos to the list."""
+    # This function remains correct.
     data = request.json
     urls = data.get("urls")
     if not urls or not isinstance(urls, list):
@@ -192,6 +201,7 @@ def add_video():
 @video_bp.route("/remove", methods=["DELETE"])
 def remove_video():
     """Removes a video from the list."""
+    # This function remains correct.
     data = request.json
     link_to_remove = data.get("link")
     if not link_to_remove:
