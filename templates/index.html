@@ -95,7 +95,7 @@
             gallery.innerHTML = '<p id="loader">Loading videos...</p>';
             
             try {
-                // 1. Fetch the initial list of videos (fast)
+                // 1. Fetch the initial list of videos (this is fast)
                 const videosRes = await fetch(`${API_URL}/videos`);
                 if (!videosRes.ok) throw new Error(`Server responded with ${videosRes.status}`);
                 const videos = await videosRes.json();
@@ -105,7 +105,7 @@
                     return;
                 }
 
-                // 2. Create all thumbnail fetch requests concurrently
+                // 2. Create all thumbnail fetch requests to run in parallel
                 const thumbnailPromises = videos.map(video =>
                     fetch(`${API_URL}/thumbnail`, {
                         method: "POST",
@@ -116,19 +116,19 @@
                     .catch(() => ({ link: video.link, thumb: 'https://via.placeholder.com/320x180?text=Error' }))
                 );
 
-                // 3. Wait for all thumbnail requests to complete
+                // 3. Wait for ALL thumbnail requests to complete
                 const thumbnailResults = await Promise.all(thumbnailPromises);
                 
-                // 4. Create a quick lookup map for thumbnails
+                // 4. Create a fast lookup map for the results (link -> thumbnail URL)
                 const thumbnailMap = new Map(thumbnailResults.map(t => [t.link, t.thumb]));
                 
-                // 5. Add the fetched thumbnail URL to each video object
+                // 5. Combine the video data with its fetched thumbnail
                 const videosWithThumbs = videos.map(video => ({
                     ...video,
                     thumb: thumbnailMap.get(video.link) || 'https://via.placeholder.com/320x180?text=Error'
                 }));
 
-                // 6. Render the entire gallery at once
+                // 6. Render the entire gallery grid in one single step
                 renderGallery(videosWithThumbs);
 
             } catch (error) {
