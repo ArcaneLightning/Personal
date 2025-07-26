@@ -63,6 +63,8 @@ def get_or_generate_thumbnail(link):
     with cache_lock:
         if link in THUMBNAIL_CACHE:
             return THUMBNAIL_CACHE[link]
+    
+    # This part runs if not in cache
     thumb_url = "https://via.placeholder.com/320x180?text=No+Thumbnail"
     try:
         response = http_session.get(link, timeout=10)
@@ -73,8 +75,11 @@ def get_or_generate_thumbnail(link):
             thumb_url = thumb_tag.get("content")
     except requests.exceptions.RequestException as e:
         logging.warning(f"Thumbnail fetch failed for {link}: {e}")
-    THUMBNAIL_CACHE[link] = thumb_url
-    save_cache()
+
+    # Cache the result and save
+    with cache_lock:
+        THUMBNAIL_CACHE[link] = thumb_url
+        save_cache() # Consider saving periodically instead of on every miss if performance is critical
     return thumb_url
 
 def load_cache():
@@ -83,11 +88,12 @@ def load_cache():
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
             try: THUMBNAIL_CACHE = json.load(f)
             except json.JSONDecodeError: THUMBNAIL_CACHE = {}
-    logging.info(f"Loaded {len(THUMBNAIL_CACHE)} items from cache.")
+    logging.info(f"Loaded {len(THUMBNAIL_CACHE)} thumbnail items from cache.")
 
 def save_cache():
+    # This should only be called within a cache_lock context
     with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(THUMBNAIL_CACHE, f, indent=4)
+        json.dump(THUMBNAIL_CACHE, f) # No need for indent in production
 
 def parse_videos():
     videos = []
@@ -100,19 +106,62 @@ def parse_videos():
                 videos.append({"title": title, "tags": [tag.strip() for tag in tags_str.split(',')], "link": link})
             else:
                 logging.warning(f"Skipping malformed line: {line.strip()}")
+    videos.reverse() # Show newest first
     return videos
 
 # --- FLASK ROUTES ---
 
 @video_bp.route("/videos")
 def get_videos():
-    """Returns only the list of videos. This is fast and won't time out."""
-    videos = parse_videos()
-    return jsonify(videos)
+    """
+    Returns a paginated, searchable list of videos with their thumbnails.
+    This is now the primary data-loading endpoint.
+    """
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 50, type=int)
+    query = request.args.get('q', '', type=str).lower().strip()
+
+    all_videos = parse_videos()
+    
+    # --- Filtering Logic ---
+    filtered_videos = all_videos
+    if query:
+        search_terms = query.split()
+        filtered_videos = [
+            v for v in all_videos 
+            if all(
+                term in v['title'].lower() or any(term in tag.lower() for tag in v['tags'])
+                for term in search_terms
+            )
+        ]
+
+    total_filtered = len(filtered_videos)
+    
+    # --- Pagination Logic ---
+    start = (page - 1) * limit
+    end = start + limit
+    paginated_videos = filtered_videos[start:end]
+
+    # --- Enrich with Thumbnails ---
+    # Using a thread pool to fetch thumbnails for the current page in parallel
+    def fetch_thumb_for_video(video):
+        video['thumb'] = get_or_generate_thumbnail(video['link'])
+        return video
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        enriched_videos = list(executor.map(fetch_thumb_for_video, paginated_videos))
+
+    return jsonify({
+        "videos": enriched_videos,
+        "total": total_filtered,
+        "page": page,
+        "limit": limit
+    })
+
 
 @video_bp.route("/thumbnail", methods=["POST"])
 def get_thumbnail_route():
-    """Returns the thumbnail for a single video. Called by the frontend for each video."""
+    """Kept for potential single-use cases or backward compatibility."""
     data = request.json
     link = data.get("link")
     if not link:
@@ -126,13 +175,11 @@ def add_video():
     urls = data.get("urls")
     if not urls or not isinstance(urls, list):
         return jsonify({"error": "A list of URLs is required."}), 400
+    
     results = []
-    existing_links = set()
-    if os.path.exists(VIDEO_FILE):
-        with open(VIDEO_FILE, "r", encoding="utf-8") as f:
-            for line in f:
-                parts = line.strip().rsplit(' | ', 2)
-                if len(parts) == 3: existing_links.add(parts[2])
+    existing_links = {v['link'] for v in parse_videos()}
+
+    # Use a set for faster lookups
     with open(VIDEO_FILE, "a", encoding="utf-8") as f:
         for url in urls:
             if url in existing_links:
@@ -142,15 +189,25 @@ def add_video():
                 title, channel, scraped_tags, males, females, trans, final_url = fetch_video_details(url)
                 if title == "Untitled":
                     raise Exception("Failed to fetch video details")
+                
+                # Check for duplicates again with the final URL
+                if final_url in existing_links:
+                    results.append({"status": "duplicate", "url": final_url})
+                    continue
+
                 final_tags = classify_video(title, channel, scraped_tags, males, females, trans)
                 entry = f"{title} | {','.join(final_tags)} | {final_url}\n"
                 f.write(entry)
-                get_or_generate_thumbnail(final_url)
+                
+                # Pre-cache the thumbnail in the background
+                get_or_generate_thumbnail(final_url) 
+                
                 results.append({"status": "success", "title": title, "final_url": final_url})
                 existing_links.add(final_url)
             except Exception as e:
                 logging.error(f"Error processing url {url}: {e}")
                 results.append({"status": "error", "url": url, "reason": str(e)})
+
     return jsonify(results), 201
 
 @video_bp.route("/remove", methods=["DELETE"])
@@ -159,6 +216,7 @@ def remove_video():
     link_to_remove = data.get("link")
     if not link_to_remove: return jsonify({"error": "Missing link"}), 400
     if not os.path.exists(VIDEO_FILE): return jsonify({"error": "Video file not found."}), 404
+    
     lines_to_keep, removed = [], False
     with open(VIDEO_FILE, "r", encoding="utf-8") as f:
         for line in f:
@@ -167,11 +225,16 @@ def remove_video():
                 removed = True
             else:
                 lines_to_keep.append(line)
+    
     if not removed: return jsonify({"error": "Video not found in file."}), 404
+    
     with open(VIDEO_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines_to_keep)
+        
+    # Remove from thumbnail cache as well
     with cache_lock:
         if link_to_remove in THUMBNAIL_CACHE:
             del THUMBNAIL_CACHE[link_to_remove]
             save_cache()
+            
     return jsonify({"message": "Video removed successfully."}), 200

@@ -18,8 +18,10 @@
         .nav-title-group { display: flex; align-items: baseline; gap: 1.5rem; }
         .nav-title-group a { color: var(--text-secondary); text-decoration: none; font-weight: 600; transition: color 0.2s; }
         .nav-title-group a:hover { color: var(--accent-primary); }
-        .nav-controls { display: flex; gap: 1rem; }
+        .nav-controls { display: flex; gap: 1rem; align-items: center; }
         nav h1 { margin: 0; font-size: 1.5rem; font-weight: 700; }
+        .input-style { padding: 0.5rem 0.8rem; background: var(--background-tertiary); border: 1px solid #444; border-radius: 8px; color: var(--text-primary); font-size: 0.9rem; transition: border-color 0.2s, box-shadow 0.2s; }
+        #searchInput { width: 250px; }
         .btn { padding: 0.6rem 1.2rem; border: none; border-radius: 8px; color: white; font-weight: 600; cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease; }
         .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px var(--shadow-color); }
         .btn-primary { background: var(--accent-primary); }
@@ -27,7 +29,7 @@
         .btn-success { background: var(--accent-success); }
         .btn-danger { background: var(--accent-error); }
         .container { max-width: 1600px; margin: 0 auto; padding: 2rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
-        #loader { text-align: center; font-size: 1.2rem; grid-column: 1 / -1; }
+        #loader { text-align: center; font-size: 1.2rem; grid-column: 1 / -1; margin-top: 1.5rem; padding-bottom: 1.5rem; }
         .video-card { background: var(--background-secondary); border-radius: 12px; box-shadow: 0 4px 20px var(--shadow-color); transition: transform 0.3s ease, box-shadow 0.3s ease; display: flex; flex-direction: column; position: relative; }
         .video-card:hover { transform: scale(1.03); box-shadow: 0 8px 25px var(--shadow-color); }
         .video-card .thumbnail-link { text-decoration: none; color: inherit; display: block; position: relative; overflow: hidden; border-radius: 12px 12px 0 0;}
@@ -60,11 +62,13 @@
             <a href="{{ url_for('reddit_page') }}">Reddit Gallery</a>
         </div>
         <div class="nav-controls">
+            <input type="text" id="searchInput" class="input-style" placeholder="Search title or tags...">
             <button id="toggleThumbsBtn" class="btn btn-secondary">Hide Thumbnails</button>
             <button class="btn btn-primary" onclick="toggleModal('addVideoModal', true)">+ Add Video</button>
         </div>
     </nav>
-    <div class="container" id="gallery"><p id="loader">Loading videos...</p></div>
+    <div class="container" id="gallery"></div>
+    <div id="loader">Loading videos...</div>
 
     <div class="modal-overlay" id="addVideoModal" onclick="handleOverlayClick(event, 'addVideoModal')"><div id="formContainer" class="modal-content"><h2>Add New Videos</h2><textarea id="videoLinks" placeholder="Paste one or more links, each on a new line..." rows="8" required></textarea><div class="modal-buttons"><button class="btn" onclick="toggleModal('addVideoModal', false)">Cancel</button><button id="addBtn" class="btn btn-success" onclick="addVideos()">Add Videos</button></div></div></div>
     <div class="modal-overlay" id="removeConfirmModal" onclick="handleOverlayClick(event, 'removeConfirmModal')"><div id="confirmContainer" class="modal-content"><h2>Confirm Deletion</h2><p>Are you sure you want to remove this video? This action cannot be undone.</p><p id="videoToRemoveTitle" style="font-weight: bold; color: var(--text-secondary);"></p><div class="modal-buttons"><button class="btn" onclick="toggleModal('removeConfirmModal', false)">Cancel</button><button id="confirmRemoveBtn" class="btn btn-danger" onclick="confirmRemove()">Yes, Remove</button></div></div></div>
@@ -74,75 +78,28 @@
         const API_URL = '';
         const gallery = document.getElementById('gallery');
         const loader = document.getElementById('loader');
-        const notification = document.getElementById('notification');
+        const searchInput = document.getElementById('searchInput');
         const toggleThumbsBtn = document.getElementById('toggleThumbsBtn');
         let videoLinkToDelete = null;
 
-        function setThumbnailVisibility(isHidden) {
-            gallery.classList.toggle('thumbnails-hidden', isHidden);
-            toggleThumbsBtn.textContent = isHidden ? 'Show Thumbnails' : 'Hide Thumbnails';
-            localStorage.setItem('thumbnailsHidden', isHidden ? 'true' : 'false');
-        }
-        toggleThumbsBtn.addEventListener('click', () => setThumbnailVisibility(!gallery.classList.contains('thumbnails-hidden')));
-        
-        document.addEventListener('DOMContentLoaded', () => {
-            setThumbnailVisibility(localStorage.getItem('thumbnailsHidden') === 'true');
-            loadGallery();
-        });
+        let state = {
+            videos: [],
+            currentPage: 1,
+            limit: 50,
+            total: 0,
+            isLoading: false,
+            searchQuery: ''
+        };
 
-        async function loadGallery() {
-            loader.style.display = 'block';
-            gallery.innerHTML = '<p id="loader">Loading videos...</p>';
-            
-            try {
-                // 1. Fetch the initial list of videos (this is fast)
-                const videosRes = await fetch(`${API_URL}/videos`);
-                if (!videosRes.ok) throw new Error(`Server responded with ${videosRes.status}`);
-                const videos = await videosRes.json();
+        const renderGallery = (videos, append = false) => {
+            if (!append) gallery.innerHTML = '';
 
-                if (videos.length === 0) {
-                    gallery.innerHTML = '<p>No videos found. Add one to get started!</p>';
-                    return;
-                }
-
-                // 2. Create all thumbnail fetch requests to run in parallel
-                const thumbnailPromises = videos.map(video =>
-                    fetch(`${API_URL}/thumbnail`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ link: video.link })
-                    })
-                    .then(res => res.ok ? res.json() : { link: video.link, thumb: 'https://via.placeholder.com/320x180?text=Error' })
-                    .catch(() => ({ link: video.link, thumb: 'https://via.placeholder.com/320x180?text=Error' }))
-                );
-
-                // 3. Wait for ALL thumbnail requests to complete
-                const thumbnailResults = await Promise.all(thumbnailPromises);
-                
-                // 4. Create a fast lookup map for the results (link -> thumbnail URL)
-                const thumbnailMap = new Map(thumbnailResults.map(t => [t.link, t.thumb]));
-                
-                // 5. Combine the video data with its fetched thumbnail
-                const videosWithThumbs = videos.map(video => ({
-                    ...video,
-                    thumb: thumbnailMap.get(video.link) || 'https://via.placeholder.com/320x180?text=Error'
-                }));
-
-                // 6. Render the entire gallery grid in one single step
-                renderGallery(videosWithThumbs);
-
-            } catch (error) {
-                gallery.innerHTML = `<p style="color: var(--accent-error);">Error loading videos: ${error.message}</p>`;
-            } finally {
-                loader.style.display = 'none';
-            }
-        }
-
-        function renderGallery(videos) {
-            if (videos.length === 0) {
-                gallery.innerHTML = '<p>No videos found. Add one to get started!</p>';
+            if (state.videos.length === 0 && !state.isLoading) {
+                loader.textContent = 'No videos found. Try a different search or add one!';
+                loader.style.display = 'block';
                 return;
             }
+
             const videoCardsHTML = videos.map(video => {
                 const primaryTag = video.tags[0] || 'Uncategorized';
                 const secondaryTags = video.tags.slice(1);
@@ -156,8 +113,83 @@
                     <div class="video-card-info"><h3>${video.title}</h3><div class="tags-container"><span class="tag primary-tag">${primaryTag}</span>${secondaryTags.map(tag => `<span class="tag">${tag}</span>`).join('')}</div></div>
                 </div>`;
             }).join('');
-            gallery.innerHTML = videoCardsHTML;
+            
+            gallery.insertAdjacentHTML('beforeend', videoCardsHTML);
+            loader.style.display = 'none';
+        };
+        
+        const fetchVideos = async (append = false) => {
+            if (state.isLoading) return;
+            state.isLoading = true;
+            loader.textContent = 'Loading videos...';
+            loader.style.display = 'block';
+            
+            const url = `${API_URL}/videos?page=${state.currentPage}&limit=${state.limit}&q=${state.searchQuery}`;
+            
+            try {
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+                const data = await res.json();
+                
+                state.total = data.total;
+                const newVideos = data.videos;
+                
+                if (append) {
+                    state.videos = [...state.videos, ...newVideos];
+                } else {
+                    state.videos = newVideos;
+                }
+                
+                renderGallery(newVideos, append);
+
+            } catch (error) {
+                loader.style.color = 'var(--accent-error)';
+                loader.textContent = `Error: ${error.message}`;
+            } finally {
+                state.isLoading = false;
+                if (state.videos.length >= state.total) {
+                   loader.style.display = 'none';
+                }
+            }
+        };
+
+        const resetAndFetch = () => {
+            state.currentPage = 1;
+            state.videos = [];
+            gallery.innerHTML = '';
+            fetchVideos(false);
+        };
+
+        let searchTimeout;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                state.searchQuery = searchInput.value.trim();
+                resetAndFetch();
+            }, 300);
+        });
+
+        let scrollTimeout;
+        const handleScroll = () => {
+            if (scrollTimeout) window.cancelAnimationFrame(scrollTimeout);
+            
+            scrollTimeout = window.requestAnimationFrame(() => {
+                const nearBottom = (window.innerHeight + window.scrollY) >= document.body.offsetHeight - 500;
+                if (nearBottom && !state.isLoading && state.videos.length < state.total) {
+                    state.currentPage++;
+                    fetchVideos(true);
+                }
+            });
+        };
+        window.addEventListener('scroll', handleScroll, { passive: true });
+
+        // --- Existing Functions (Minor changes for reload) ---
+        function setThumbnailVisibility(isHidden) {
+            gallery.classList.toggle('thumbnails-hidden', isHidden);
+            toggleThumbsBtn.textContent = isHidden ? 'Show Thumbnails' : 'Hide Thumbnails';
+            localStorage.setItem('thumbnailsHidden', isHidden ? 'true' : 'false');
         }
+        toggleThumbsBtn.addEventListener('click', () => setThumbnailVisibility(!gallery.classList.contains('thumbnails-hidden')));
         
         async function addVideos() {
             const linksText = document.getElementById("videoLinks").value.trim();
@@ -183,7 +215,7 @@
                 showNotification(`${successCount} of ${urls.length} links added successfully.`, 'success');
                 document.getElementById("videoLinks").value = "";
                 toggleModal('addVideoModal', false);
-                if (successCount > 0) await loadGallery();
+                if (successCount > 0) resetAndFetch(); // Use resetAndFetch to reload
             } catch (error) {
                 showNotification(`Error adding videos: ${error.message}`, 'error');
             } finally {
@@ -199,7 +231,12 @@
                 const res = await fetch(`${API_URL}/remove`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link: videoLinkToDelete }) });
                 if (!res.ok) throw new Error('Server failed to remove video.');
                 showNotification('Video removed.', 'success');
-                await loadGallery();
+                const cardId = `card-${btoa(videoLinkToDelete)}`;
+                const card = document.getElementById(cardId);
+                if(card) card.remove();
+                state.videos = state.videos.filter(v => v.link !== videoLinkToDelete);
+                state.total--;
+                if(state.videos.length === 0) resetAndFetch();
             } catch (error) {
                 showNotification(error.message, 'error');
             } finally { videoLinkToDelete = null; }
@@ -214,6 +251,11 @@
             n.classList.add('show');
             setTimeout(() => { n.classList.remove('show'); }, 3000);
         }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            setThumbnailVisibility(localStorage.getItem('thumbnailsHidden') === 'true');
+            fetchVideos(); // Initial fetch
+        });
     </script>
 </body>
 </html>
